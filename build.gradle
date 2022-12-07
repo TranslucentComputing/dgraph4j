@@ -16,39 +16,36 @@
 
 buildscript {
     repositories {
-        maven {
-            url "https://plugins.gradle.org/m2/"
-        }
+        gradlePluginPortal()
     }
     dependencies {
-        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.8'
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.9.1'
     }
 }
 
 plugins {
+    id 'java'
     id 'java-library'
+    id 'maven-publish'
+    id 'idea'
     id 'jacoco'
     id 'com.github.kt3k.coveralls' version '2.8.2'
-    id 'com.github.sherter.google-java-format' version '0.8'
+    id "com.google.protobuf" version "0.9.1"
 }
-// Apply the java plugin to add support for Java
-apply plugin: 'java'
-apply plugin: 'com.google.protobuf'
-apply plugin: 'idea'
-apply plugin: 'com.github.sherter.google-java-format'
-apply plugin: 'maven'
-apply plugin: 'signing'
 
 group = 'io.dgraph'
 archivesBaseName = 'dgraph4j'
-version = '21.12.0'
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
+version = '21.12.0-tc'
 
-def grpcVersion = '1.34.1'
-def dgraph4jVersion = "$version"
-def openCensusVersion = '0.23.0'
+def grpcVersion = '1.51.0'
 
+java {
+    withSourcesJar()
+    withJavadocJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
 
 protobuf {
     protoc {
@@ -80,111 +77,39 @@ protobuf {
 
 repositories {
     mavenCentral()
-}
-
-// configurations for the integration test
-sourceSets {
-    integrationTest {
-        java {
-            compileClasspath += main.output + test.output
-            runtimeClasspath += main.output + test.output
-            srcDir file('src/integration-test/java')
-        }
-        resources.srcDir file('src/integration-test/resources')
+    mavenLocal()
+    maven {
+        url "https://nexus.tekstackapps.com/repository/maven-releases"
     }
-}
-
-configurations {
-    integrationTestCompile.extendsFrom testCompile
-    integrationTestRuntime.extendsFrom testRuntime
 }
 
 // In this section you declare the dependencies for your production and test code
 dependencies {
     // The production code uses the SLF4J logging API at compile time
-    compile "org.slf4j:slf4j-api:1.7.21"
+    api 'org.slf4j:slf4j-api:2.0.5'
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-netty:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    // javax.annotation is removed from the oracle java se 11, and requires explicit dependency
+    implementation 'javax.annotation:javax.annotation-api:1.3.2'
+
     // Specific slf4j bindings should not be included in the default (compile) scope.
     // See http://www.slf4j.org/faq.html#maven2.
-    testCompile "org.slf4j:slf4j-simple:1.7.21"
-    compile "io.grpc:grpc-protobuf:${grpcVersion}"
-    compile "io.grpc:grpc-netty:${grpcVersion}"
-    compile "io.grpc:grpc-stub:${grpcVersion}"
-
-    testCompile "io.opencensus:opencensus-api:${openCensusVersion}"
-    testCompile "io.opencensus:opencensus-exporter-trace-jaeger:${openCensusVersion}"
-    testRuntime "io.opencensus:opencensus-impl:${openCensusVersion}"
-
+    testImplementation 'org.slf4j:slf4j-simple:2.0.5'
+    testImplementation "io.opencensus:opencensus-api:0.31.1"
+    testImplementation "io.opencensus:opencensus-exporter-trace-jaeger:0.31.1"
+    testImplementation "io.opencensus:opencensus-impl:0.31.1"
     // Used for unmarshalling a JSON GraphQL response
-    testCompile "com.google.code.gson:gson:2.8.6"
-
+    testImplementation 'com.google.code.gson:gson:2.10'
     // Declare the dependency for your favourite test framework you want to use in your tests.
-    testCompile 'org.testng:testng:6.8.8'
-    // javax.annotation is removed from the oracle java se 11, and requires explicit dependency
-    compile 'javax.annotation:javax.annotation-api:1.2-b01'
+    testImplementation 'org.testng:testng:7.6.1'
 }
-
-googleJavaFormat {
-    toolVersion = '1.5'
-    exclude "src/generated/**/*.java"
-}
-compileJava.dependsOn 'googleJavaFormat'
 
 idea {
     module {
-        sourceDirs += file("${projectDir}/src/generated/main/java");
-        sourceDirs += file("${projectDir}/src/generated/main/grpc");
+        sourceDirs += file("${projectDir}/src/generated/main/java")
+        sourceDirs += file("${projectDir}/src/generated/main/grpc")
     }
-}
-
-test {
-    useTestNG()
-    //testLogging.showStandardStreams = true
-    systemProperties['org.slf4j.simpleLogger.log.io.dgraph.DgraphIntegrationTest'] = 'DEBUG'
-}
-
-//create a single Jar with all dependencies
-task fatJar(type: Jar) {
-    manifest {
-        attributes 'Implementation-Title': 'Dgraph Client for Java',
-                   'Implementation-Version': version
-    }
-    baseName = project.name + '-all'
-    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
-    with jar
-}
-
-task buildJar(type: Jar)
-
-task javadocJar(type: Jar) {
-    classifier = 'javadoc'
-    from javadoc
-}
-
-task sourceJar(type: Jar) {
-    classifier 'sources'
-    from sourceSets.main.allJava
-}
-
-task updateProto(type: Exec) {
-    workingDir 'src/main/proto'
-    commandLine 'wget', '-O', 'api.proto', 'https://raw.githubusercontent.com/dgraph-io/dgo/master/protos/api.proto'
-}
-
-task setupCluster(type: Exec) {
-    workingDir System.getenv('GOPATH') + '/src/github.com/dgraph-io/dgraph/dgraph'
-
-    commandLine './run.sh'
-}
-
-task integrationTest(type: Test) {
-    testClassesDirs = sourceSets.integrationTest.output.classesDirs
-    classpath = sourceSets.integrationTest.runtimeClasspath
-}
-
-artifacts {
-    archives jar
-    archives sourceJar
-    archives javadocJar
 }
 
 jacocoTestReport {
@@ -194,58 +119,52 @@ jacocoTestReport {
     }
 }
 
-if(project.hasProperty("ossrhUsername")) {
-  signing {
-    sign configurations.archives
-  }
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            pom {
+                name = 'dgraph4j'
+                packaging = 'jar'
+                artifactId = 'dgraph4j'
+                description = 'Dgraph Java Client'
+                url = 'https://github.com/dgraph-io/dgraph4j'
 
-  uploadArchives {
-    repositories {
-      mavenDeployer {
-        beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
-
-        repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
-          authentication(userName: ossrhUsername, password: ossrhPassword)
-        }
-
-        snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
-          authentication(userName: ossrhUsername, password: ossrhPassword)
-        }
-
-        pom.project {
-          name 'dgraph4j'
-          packaging 'jar'
-          artifactId 'dgraph4j'
-          description 'Dgraph Java Client'
-          url 'https://github.com/dgraph-io/dgraph4j'
-
-          scm {
-            connection 'https://github.com/dgraph-io/dgraph4j.git'
-            url 'https://github.com/dgraph-io/dgraph4j'
-          }
-
-          licenses {
-            license {
-              name 'Apache License 2.0'
-              url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-              distribution 'repo'
+                licenses {
+                    license {
+                        name = 'Apache License 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution = 'repo'
+                    }
+                }
+                developers {
+                    developer {
+                        name = 'Dgraph Labs'
+                    }
+                }
+                scm {
+                    connection = 'https://github.com/dgraph-io/dgraph4j.git'
+                    url = 'https://github.com/dgraph-io/dgraph4j'
+                }
             }
-          }
-
-          developers {
-            developer {
-              name 'Dgraph Labs'
-            }
-          }
         }
-      }
     }
-  }
+    repositories {
+        maven {
+            name = 'nexus'
+            url = "https://nexus.tekstackapps.com/repository/maven-releases"
+            credentials(PasswordCredentials)
+        }
+    }
+}
+
+test {
+    useTestNG()
+    //testLogging.showStandardStreams = true
+    systemProperties['org.slf4j.simpleLogger.log.io.dgraph.DgraphIntegrationTest'] = 'DEBUG'
 }
 
 
-task version() {
-    doLast {
-        println dgraph4jVersion
-    }
+task updateProto(type: Exec) {
+    workingDir 'src/main/proto'
+    commandLine 'wget', '-O', 'api.proto', 'https://raw.githubusercontent.com/dgraph-io/dgo/master/protos/api.proto'
 }
